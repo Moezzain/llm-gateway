@@ -1,0 +1,116 @@
+# LLM Gateway Configuration
+#
+# Provider API keys can also be set via environment variables:
+# - OPENAI_API_KEY
+# - ANTHROPIC_API_KEY
+
+# Provider configurations
+providers:
+  openai:
+    # api_key: "sk-..."  # Or use OPENAI_API_KEY env var
+    timeout: 30.0
+    enabled: true
+
+  anthropic:
+    # api_key: "sk-ant-..."  # Or use ANTHROPIC_API_KEY env var
+    timeout: 30.0
+    enabled: true
+
+  ollama:
+    # Local models — no API key. Auth is network-level.
+    # base_url: "http://localhost:11434"  # or "http://ollama:11434" in docker
+    timeout: 60.0  # local inference can be slow
+    enabled: true  # enable once an Ollama server is running
+
+# Model routing - maps model names to providers
+models:
+  gpt-4o:
+    provider: openai
+    model_id: gpt-4o
+    fallback: claude-sonnet
+    input_cost_per_1k: 0.0025
+    output_cost_per_1k: 0.01
+
+  gpt-4o-mini:
+    provider: openai
+    model_id: gpt-4o-mini
+    fallback: claude-haiku
+    input_cost_per_1k: 0.00015
+    output_cost_per_1k: 0.0006
+
+  claude-sonnet:
+    provider: anthropic
+    model_id: claude-sonnet-4-6
+    fallback: gpt-4o
+    input_cost_per_1k: 0.003
+    output_cost_per_1k: 0.015
+
+  claude-haiku:
+    provider: anthropic
+    model_id: claude-haiku-4-5
+    fallback: gpt-4o-mini
+    input_cost_per_1k: 0.0008
+    output_cost_per_1k: 0.004
+
+  # Local model via Ollama — $0 cost. Falls back to a cheap cloud model if
+  # the local server is down. Requires `ollama pull qwen2.5:32b` + enabled: true above.
+  qwen:
+    provider: ollama
+    model_id: qwen2.5:32b
+    fallback: gpt-4o-mini
+    input_cost_per_1k: 0.0
+    output_cost_per_1k: 0.0
+
+# Team configurations
+teams:
+  team-alpha:
+    name: "Team Alpha"
+    api_key: "gw-alpha-secret-key"
+    allowed_models: []  # Empty = all models allowed
+    rate_limit:
+      requests_per_minute: 100
+      tokens_per_minute: 200000
+    budget:
+      monthly_limit_usd: 500.0
+      warning_threshold: 0.8
+    enabled: true
+
+  team-beta:
+    name: "Team Beta"
+    api_key: "gw-beta-secret-key"
+    allowed_models:
+      - gpt-4o-mini
+      - claude-haiku
+    rate_limit:
+      requests_per_minute: 30
+      tokens_per_minute: 50000
+    budget:
+      monthly_limit_usd: 100.0
+      warning_threshold: 0.8
+    enabled: true
+
+# Prompt compression (cost optimization)
+# Opt-in: conservative whitespace normalization before sending to providers.
+compression:
+  enabled: false
+  strategy: rule_based
+  min_chars: 200  # skip prompts smaller than this
+
+# Input guardrails (security) — prompt injection detection
+# mode: "block" rejects flagged requests (400); "flag" logs but allows (shadow).
+guardrails:
+  enabled: true
+  mode: block
+
+# Redis for rate limiting
+redis:
+  host: "redis"  # Use "localhost" for local dev, "redis" for docker-compose
+  port: 6379
+  db: 0
+  # password: "secret"  # Uncomment if auth required
+  ssl: false
+
+# Server settings
+host: "0.0.0.0"
+port: 8000
+debug: false

@@ -1,0 +1,140 @@
+groups:
+  - name: llm_gateway_alerts
+    rules:
+      # Provider error rate above threshold
+      - alert: ProviderHighErrorRate
+        expr: |
+          (
+            sum(rate(llm_gateway_requests_total{status="error"}[5m])) by (provider)
+            /
+            sum(rate(llm_gateway_requests_total[5m])) by (provider)
+          ) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate for provider {{ $labels.provider }}"
+          description: "Provider {{ $labels.provider }} has {{ $value | humanizePercentage }} error rate over last 5 minutes"
+          runbook: "Check provider status page. Verify API keys. Review circuit breaker state."
+
+      - alert: ProviderCriticalErrorRate
+        expr: |
+          (
+            sum(rate(llm_gateway_requests_total{status="error"}[5m])) by (provider)
+            /
+            sum(rate(llm_gateway_requests_total[5m])) by (provider)
+          ) > 0.25
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate for provider {{ $labels.provider }}"
+          description: "Provider {{ $labels.provider }} has {{ $value | humanizePercentage }} error rate. Fallback should be active."
+          runbook: "Immediate: verify fallback routing active. Check if all providers affected."
+
+      # Team approaching budget cap
+      - alert: TeamBudgetWarning
+        expr: llm_gateway_cost_usd_total > 400
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Team {{ $labels.team }} approaching budget limit"
+          description: "Team {{ $labels.team }} has spent ${{ $value | printf \"%.2f\" }}. Default limit is $500."
+          runbook: "Notify team lead. Review recent usage patterns."
+
+      - alert: TeamBudgetCritical
+        expr: llm_gateway_cost_usd_total > 475
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Team {{ $labels.team }} near budget exhaustion"
+          description: "Team {{ $labels.team }} has spent ${{ $value | printf \"%.2f\" }}. Will hit 402 errors soon."
+          runbook: "Urgent: contact team. Consider temporary limit increase or usage freeze."
+
+      # Latency P99 above SLA
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(llm_gateway_request_latency_seconds_bucket[5m])) by (le, model)
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P99 latency for model {{ $labels.model }}"
+          description: "P99 latency is {{ $value | humanizeDuration }} for model {{ $labels.model }}"
+          runbook: "Check provider status. Review request complexity. Consider model switch."
+
+      - alert: CriticalLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(llm_gateway_request_latency_seconds_bucket[5m])) by (le, model)
+          ) > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical P99 latency for model {{ $labels.model }}"
+          description: "P99 latency is {{ $value | humanizeDuration }}. SLA likely breached."
+          runbook: "Consider fallback to faster model. Alert affected teams."
+
+      # Circuit breaker opened
+      - alert: CircuitBreakerOpen
+        expr: llm_gateway_circuit_state == 2
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker OPEN for provider {{ $labels.provider }}"
+          description: "Provider {{ $labels.provider }} circuit breaker is open. Traffic routed to fallback."
+          runbook: "Check provider health. Monitor fallback capacity. Circuit will test recovery automatically."
+
+      - alert: CircuitBreakerHalfOpen
+        expr: llm_gateway_circuit_state == 1
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "Circuit breaker testing recovery for {{ $labels.provider }}"
+          description: "Provider {{ $labels.provider }} circuit is half-open. Testing if provider recovered."
+
+      # Provider marked unhealthy by health checker
+      - alert: ProviderUnhealthy
+        expr: llm_gateway_provider_healthy == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Provider {{ $labels.provider }} marked unhealthy"
+          description: "Health checker marked {{ $labels.provider }} as unhealthy. Proactive fallback active."
+          runbook: "Check provider status page. Review health check logs."
+
+      # Rate limiting triggered frequently
+      - alert: HighRateLimitHits
+        expr: |
+          sum(rate(llm_gateway_rate_limit_hits_total[5m])) by (team) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Team {{ $labels.team }} hitting rate limits"
+          description: "Team {{ $labels.team }} is being rate limited frequently"
+          runbook: "Review team's rate limit config. Check for runaway processes."
+
+      # Fallback usage high (indicates primary instability)
+      - alert: HighFallbackUsage
+        expr: |
+          (
+            sum(rate(llm_gateway_fallback_total[10m])) by (model)
+            /
+            sum(rate(llm_gateway_requests_total[10m])) by (model)
+          ) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High fallback usage for model {{ $labels.model }}"
+          description: "{{ $value | humanizePercentage }} of requests for {{ $labels.model }} using fallback"
+          runbook: "Primary provider may be degraded. Review error logs."
